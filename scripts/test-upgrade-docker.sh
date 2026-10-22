@@ -143,6 +143,14 @@ api_task_count() {
         });'
 }
 
+api_task_names() {
+    curl -s -b "$3" "http://127.0.0.1:$1/api/tasks?type=all" | node -e '
+        let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+            const b = JSON.parse(s); const list = Array.isArray(b) ? b : b.tasks || [];
+            process.stdout.write(list.map((t) => `${t.name} [${t.recurrence_type || "-"} ${t.due_date || "-"}]`).join(" | "));
+        });'
+}
+
 api_has_task() {
     curl -s -b "$3" "http://127.0.0.1:$1/api/tasks?type=all" | grep -q "$2"
 }
@@ -184,6 +192,7 @@ MARKER_STATUS="$(api_post "$OLD_PORT" /api/task "$OLD_JAR" "{\"name\":\"$MARKER\
 check "$([ "$MARKER_STATUS" = "201" ]; echo $?)" "old image: created marker task ($MARKER_STATUS)"
 OLD_COUNT="$(api_task_count "$OLD_PORT" "" "$OLD_JAR")"
 yellow "   tasks visible on old image: $OLD_COUNT"
+yellow "   DIAG old image lists: $(api_task_names "$OLD_PORT" "" "$OLD_JAR")"
 
 docker stop "$OLD_NAME" >/dev/null
 docker rm "$OLD_NAME" >/dev/null
@@ -209,6 +218,7 @@ count_users() {
     fi
 }
 USERS_BEFORE="$(count_users)"
+yellow "   DIAG task rows before: $(sqlite3 -readonly "$VOL/production.sqlite3" "SELECT COUNT(*) FROM tasks")"
 
 # ---------------------------------------------------------------- step 2
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -259,6 +269,8 @@ else
 fi
 
 NEW_COUNT="$(api_task_count "$NEW_PORT" "" "$NEW_JAR")"
+yellow "   DIAG new image lists: $(api_task_names "$NEW_PORT" "" "$NEW_JAR")"
+yellow "   DIAG task rows after: $(sqlite3 -readonly "$VOL/production.sqlite3" "SELECT COUNT(*) FROM tasks")"
 check "$([ "$NEW_COUNT" = "$OLD_COUNT" ]; echo $?)" "new image: task count unchanged ($OLD_COUNT -> $NEW_COUNT)"
 check "$(api_has_task "$NEW_PORT" "$MARKER" "$NEW_JAR"; echo $?)" "new image: marker task still present"
 for p in /api/projects /api/tags /api/notes /api/tasks/metrics "/api/tasks?type=today" "/api/tasks?type=upcoming"; do
